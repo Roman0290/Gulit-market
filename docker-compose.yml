@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pocket-market-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pocket
+      POSTGRES_PASSWORD: pocket
+      POSTGRES_DB: pocket_market
+    ports:
+      - "5432:5432"
+    volumes:
+      - pocket_market_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pocket -d pocket_market"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pocket_market_data:
