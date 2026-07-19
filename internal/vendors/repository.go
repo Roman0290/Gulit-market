@@ -57,6 +57,25 @@ func (r *Repository) ListApproved(ctx context.Context) ([]Vendor, error) {
 	return list, rows.Err()
 }
 
+func (r *Repository) ListPending(ctx context.Context) ([]Vendor, error) {
+	query := `SELECT ` + vendorColumns + ` FROM vendors WHERE status = 'pending' ORDER BY created_at`
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	list := []Vendor{}
+	for rows.Next() {
+		v, err := scanVendorRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, v)
+	}
+	return list, rows.Err()
+}
+
 func (r *Repository) Create(ctx context.Context, v *Vendor) (*Vendor, error) {
 	query := `
 		INSERT INTO vendors (user_id, shop_name, description, location, status)

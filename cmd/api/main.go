@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/romina/pocket-market-api/internal/addresses"
+	"github.com/romina/pocket-market-api/internal/admin"
 	"github.com/romina/pocket-market-api/internal/auth"
 	"github.com/romina/pocket-market-api/internal/cart"
 	"github.com/romina/pocket-market-api/internal/categories"
@@ -57,6 +58,9 @@ func main() {
 	paymentService := payments.NewService(paymentRepo, cfg.StripeSecretKey, cfg.StripeWebhookSecret)
 	paymentHandler := payments.NewHandler(paymentService)
 
+	adminRepo := admin.NewRepository(conn)
+	adminHandler := admin.NewHandler(adminRepo, orderRepo, vendorRepo)
+
 	router := gin.Default()
 
 	router.GET("/health", func(c *gin.Context) {
@@ -72,6 +76,7 @@ func main() {
 	cartHandler.RegisterRoutes(v1, authService)
 	orderHandler.RegisterRoutes(v1, authService)
 	paymentHandler.RegisterRoutes(v1, authService)
+	adminHandler.RegisterRoutes(v1, authService)
 
 	log.Printf("starting pocket-market-api on :%s", cfg.Port)
 	if err := router.Run(":" + cfg.Port); err != nil {

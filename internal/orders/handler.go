@@ -70,7 +70,14 @@ func (h *Handler) List(c *gin.Context) {
 
 func (h *Handler) Get(c *gin.Context) {
 	userID := c.GetString(auth.ContextUserIDKey)
-	o, err := h.service.GetForParticipant(c.Request.Context(), c.Param("id"), userID)
+
+	var o *Order
+	var err error
+	if role, _ := c.Get(auth.ContextRoleKey); role == users.RoleAdmin {
+		o, err = h.service.GetAny(c.Request.Context(), c.Param("id"))
+	} else {
+		o, err = h.service.GetForParticipant(c.Request.Context(), c.Param("id"), userID)
+	}
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "order not found"})

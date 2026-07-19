@@ -54,6 +54,14 @@ func (s *Service) GetForParticipant(ctx context.Context, orderID, userID string)
 	return s.repo.GetByIDForParticipant(ctx, orderID, userID)
 }
 
+func (s *Service) ListAll(ctx context.Context) ([]Order, error) {
+	return s.repo.ListAll(ctx)
+}
+
+func (s *Service) GetAny(ctx context.Context, orderID string) (*Order, error) {
+	return s.repo.GetByID(ctx, orderID)
+}
+
 func (s *Service) resolveVendorID(ctx context.Context, userID string) (string, error) {
 	v, err := s.vendorRepo.GetByUserID(ctx, userID)
 	if err != nil {

@@ -175,6 +175,48 @@ func (r *Repository) ListByCustomer(ctx context.Context, customerID string) ([]O
 	return orders, nil
 }
 
+// ListAll returns every order platform-wide, for admin use.
+func (r *Repository) ListAll(ctx context.Context) ([]Order, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT `+orderColumns+` FROM orders ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	orders, err := scanOrders(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range orders {
+		items, err := r.itemsForOrder(ctx, orders[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		orders[i].Items = items
+	}
+	return orders, nil
+}
+
+// GetByID returns an order regardless of participant, for admin use.
+func (r *Repository) GetByID(ctx context.Context, orderID string) (*Order, error) {
+	var o Order
+	err := r.db.QueryRowContext(ctx, `SELECT `+orderColumns+` FROM orders WHERE id = $1`, orderID).Scan(
+		&o.ID, &o.CustomerID, &o.VendorID, &o.AddressID, &o.Status, &o.Subtotal, &o.DeliveryFee, &o.Discount, &o.Total, &o.PaymentStatus, &o.PaymentMethod, &o.CreatedAt, &o.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	items, err := r.itemsForOrder(ctx, o.ID)
+	if err != nil {
+		return nil, err
+	}
+	o.Items = items
+	return &o, nil
+}
+
 func (r *Repository) ListByVendor(ctx context.Context, vendorID string) ([]Order, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT `+orderColumns+` FROM orders WHERE vendor_id = $1 ORDER BY created_at DESC`, vendorID)
 	if err != nil {
