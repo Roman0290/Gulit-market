@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 
 	"github.com/romina/pocket-market-api/internal/addresses"
@@ -62,6 +63,17 @@ func main() {
 	adminHandler := admin.NewHandler(adminRepo, orderRepo, vendorRepo)
 
 	router := gin.Default()
+
+	// Permissive CORS for local development (Flutter web dev server runs on
+	// a random localhost port). Tighten this to a real allowlist before
+	// deploying anywhere public.
+	router.Use(cors.New(cors.Config{
+		AllowAllOrigins:  true,
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: false,
+	}))
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
