@@ -175,6 +175,69 @@ func (r *Repository) ListByCustomer(ctx context.Context, customerID string) ([]O
 	return orders, nil
 }
 
+func (r *Repository) ListByVendor(ctx context.Context, vendorID string) ([]Order, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT `+orderColumns+` FROM orders WHERE vendor_id = $1 ORDER BY created_at DESC`, vendorID)
+	if err != nil {
+		return nil, err
+	}
+	orders, err := scanOrders(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range orders {
+		items, err := r.itemsForOrder(ctx, orders[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		orders[i].Items = items
+	}
+	return orders, nil
+}
+
+// UpdateStatusForVendor updates an order's status only if it belongs to the
+// given vendor, returning ErrNotFound otherwise (no existence leak).
+func (r *Repository) UpdateStatusForVendor(ctx context.Context, orderID, vendorID string, status Status) (*Order, error) {
+	query := `
+		UPDATE orders SET status = $1, updated_at = now()
+		WHERE id = $2 AND vendor_id = $3
+		RETURNING ` + orderColumns
+
+	var o Order
+	err := r.db.QueryRowContext(ctx, query, status, orderID, vendorID).Scan(
+		&o.ID, &o.CustomerID, &o.VendorID, &o.AddressID, &o.Status, &o.Subtotal, &o.DeliveryFee, &o.Discount, &o.Total, &o.PaymentStatus, &o.PaymentMethod, &o.CreatedAt, &o.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	items, err := r.itemsForOrder(ctx, o.ID)
+	if err != nil {
+		return nil, err
+	}
+	o.Items = items
+	return &o, nil
+}
+
+// GetStatusForVendor returns the current status of an order owned by the
+// given vendor, used to validate status transitions before writing.
+func (r *Repository) GetStatusForVendor(ctx context.Context, orderID, vendorID string) (Status, error) {
+	var status Status
+	err := r.db.QueryRowContext(ctx,
+		`SELECT status FROM orders WHERE id = $1 AND vendor_id = $2`, orderID, vendorID,
+	).Scan(&status)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", err
+	}
+	return status, nil
+}
+
 // GetByIDForParticipant returns the order only if userID is either the
 // customer who placed it or the user behind the vendor who owns it.
 func (r *Repository) GetByIDForParticipant(ctx context.Context, orderID, userID string) (*Order, error) {

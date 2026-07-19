@@ -22,6 +22,10 @@ func (h *Handler) RegisterRoutes(rg *gin.RouterGroup, authService *auth.Service)
 	rg.POST("/orders/checkout", authService.RequireAuth(), auth.RequireRole(users.RoleCustomer), h.Checkout)
 	rg.GET("/orders", authService.RequireAuth(), auth.RequireRole(users.RoleCustomer), h.List)
 	rg.GET("/orders/:id", authService.RequireAuth(), h.Get)
+
+	vendorOnly := rg.Group("/vendor/orders", authService.RequireAuth(), auth.RequireRole(users.RoleVendor))
+	vendorOnly.GET("", h.ListForVendor)
+	vendorOnly.PATCH("/:id/status", h.UpdateStatus)
 }
 
 type checkoutRequest struct {
@@ -76,4 +80,47 @@ func (h *Handler) Get(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, o)
+}
+
+func (h *Handler) ListForVendor(c *gin.Context) {
+	userID := c.GetString(auth.ContextUserIDKey)
+	list, err := h.service.ListForVendor(c.Request.Context(), userID)
+	if err != nil {
+		h.handleVendorError(c, err, "failed to list orders")
+		return
+	}
+	c.JSON(http.StatusOK, list)
+}
+
+type updateStatusRequest struct {
+	Status Status `json:"status" binding:"required"`
+}
+
+func (h *Handler) UpdateStatus(c *gin.Context) {
+	var req updateStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID := c.GetString(auth.ContextUserIDKey)
+	o, err := h.service.UpdateStatus(c.Request.Context(), userID, c.Param("id"), req.Status)
+	if err != nil {
+		h.handleVendorError(c, err, "failed to update order status")
+		return
+	}
+	c.JSON(http.StatusOK, o)
+}
+
+func (h *Handler) handleVendorError(c *gin.Context, err error, fallback string) {
+	switch {
+	case errors.Is(err, ErrNoVendorProfile):
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+	case errors.Is(err, ErrInvalidStatusValue), errors.Is(err, ErrInvalidStatusTransition):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	case errors.Is(err, ErrNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "order not found"})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fallback})
+	}
 }

@@ -50,7 +50,7 @@ func main() {
 	cartHandler := cart.NewHandler(cartRepo)
 
 	orderRepo := orders.NewRepository(conn)
-	orderService := orders.NewService(orderRepo)
+	orderService := orders.NewService(orderRepo, vendorRepo)
 	orderHandler := orders.NewHandler(orderService)
 
 	paymentRepo := payments.NewRepository(conn)
