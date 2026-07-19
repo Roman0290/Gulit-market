@@ -32,6 +32,9 @@ func main() {
 	categoryHandler := categories.NewHandler(categoryRepo)
 
 	vendorRepo := vendors.NewRepository(conn)
+	vendorService := vendors.NewService(vendorRepo)
+	vendorHandler := vendors.NewHandler(vendorService)
+
 	productRepo := products.NewRepository(conn)
 	productService := products.NewService(productRepo, vendorRepo)
 	productHandler := products.NewHandler(productService)
@@ -45,6 +48,7 @@ func main() {
 	v1 := router.Group("/api/v1")
 	authHandler.RegisterRoutes(v1)
 	categoryHandler.RegisterRoutes(v1, authService)
+	vendorHandler.RegisterRoutes(v1, authService)
 	productHandler.RegisterRoutes(v1, authService)
 
 	log.Printf("starting pocket-market-api on :%s", cfg.Port)
