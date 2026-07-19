@@ -6,8 +6,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/romina/pocket-market-api/internal/addresses"
 	"github.com/romina/pocket-market-api/internal/auth"
+	"github.com/romina/pocket-market-api/internal/cart"
 	"github.com/romina/pocket-market-api/internal/categories"
+	"github.com/romina/pocket-market-api/internal/orders"
 	"github.com/romina/pocket-market-api/internal/products"
 	"github.com/romina/pocket-market-api/internal/users"
 	"github.com/romina/pocket-market-api/internal/vendors"
@@ -39,6 +42,16 @@ func main() {
 	productService := products.NewService(productRepo, vendorRepo)
 	productHandler := products.NewHandler(productService)
 
+	addressRepo := addresses.NewRepository(conn)
+	addressHandler := addresses.NewHandler(addressRepo)
+
+	cartRepo := cart.NewRepository(conn)
+	cartHandler := cart.NewHandler(cartRepo)
+
+	orderRepo := orders.NewRepository(conn)
+	orderService := orders.NewService(orderRepo)
+	orderHandler := orders.NewHandler(orderService)
+
 	router := gin.Default()
 
 	router.GET("/health", func(c *gin.Context) {
@@ -50,6 +63,9 @@ func main() {
 	categoryHandler.RegisterRoutes(v1, authService)
 	vendorHandler.RegisterRoutes(v1, authService)
 	productHandler.RegisterRoutes(v1, authService)
+	addressHandler.RegisterRoutes(v1, authService)
+	cartHandler.RegisterRoutes(v1, authService)
+	orderHandler.RegisterRoutes(v1, authService)
 
 	log.Printf("starting pocket-market-api on :%s", cfg.Port)
 	if err := router.Run(":" + cfg.Port); err != nil {

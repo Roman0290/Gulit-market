@@ -1,0 +1,79 @@
+package orders
+
+import (
+	"errors"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/romina/pocket-market-api/internal/auth"
+	"github.com/romina/pocket-market-api/internal/users"
+)
+
+type Handler struct {
+	service *Service
+}
+
+func NewHandler(service *Service) *Handler {
+	return &Handler{service: service}
+}
+
+func (h *Handler) RegisterRoutes(rg *gin.RouterGroup, authService *auth.Service) {
+	rg.POST("/orders/checkout", authService.RequireAuth(), auth.RequireRole(users.RoleCustomer), h.Checkout)
+	rg.GET("/orders", authService.RequireAuth(), auth.RequireRole(users.RoleCustomer), h.List)
+	rg.GET("/orders/:id", authService.RequireAuth(), h.Get)
+}
+
+type checkoutRequest struct {
+	AddressID     string        `json:"address_id" binding:"required"`
+	PaymentMethod PaymentMethod `json:"payment_method" binding:"required"`
+}
+
+func (h *Handler) Checkout(c *gin.Context) {
+	var req checkoutRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID := c.GetString(auth.ContextUserIDKey)
+	createdOrders, err := h.service.Checkout(c.Request.Context(), userID, req.AddressID, req.PaymentMethod)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrInvalidPaymentMethod), errors.Is(err, ErrProductUnavailable), errors.Is(err, ErrInsufficientStock):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, ErrAddressNotOwned):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, ErrEmptyCart):
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "checkout failed"})
+		}
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"orders": createdOrders})
+}
+
+func (h *Handler) List(c *gin.Context) {
+	userID := c.GetString(auth.ContextUserIDKey)
+	list, err := h.service.ListByCustomer(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list orders"})
+		return
+	}
+	c.JSON(http.StatusOK, list)
+}
+
+func (h *Handler) Get(c *gin.Context) {
+	userID := c.GetString(auth.ContextUserIDKey)
+	o, err := h.service.GetForParticipant(c.Request.Context(), c.Param("id"), userID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "order not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch order"})
+		return
+	}
+	c.JSON(http.StatusOK, o)
+}
