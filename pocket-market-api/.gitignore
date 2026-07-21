@@ -1,0 +1,8 @@
+.env
+*.exe
+*.test
+*.out
+/tmp/
+/bin/
+vendor/
+.DS_Store
