@@ -41,18 +41,27 @@ type Item struct {
 }
 
 type Order struct {
-	ID            string        `json:"id"`
-	CustomerID    string        `json:"customer_id"`
-	VendorID      string        `json:"vendor_id"`
-	AddressID     string        `json:"address_id"`
-	Status        Status        `json:"status"`
-	Subtotal      float64       `json:"subtotal"`
-	DeliveryFee   float64       `json:"delivery_fee"`
-	Discount      float64       `json:"discount"`
-	Total         float64       `json:"total"`
-	PaymentStatus PaymentStatus `json:"payment_status"`
-	PaymentMethod PaymentMethod `json:"payment_method"`
-	CreatedAt     time.Time     `json:"created_at"`
-	UpdatedAt     time.Time     `json:"updated_at"`
-	Items         []Item        `json:"items,omitempty"`
+	ID               string        `json:"id"`
+	CustomerID       string        `json:"customer_id"`
+	VendorID         string        `json:"vendor_id"`
+	AddressID        string        `json:"address_id"`
+	Status           Status        `json:"status"`
+	Subtotal         float64       `json:"subtotal"`
+	DeliveryFee      float64       `json:"delivery_fee"`
+	Discount         float64       `json:"discount"`
+	CommissionAmount float64       `json:"commission_amount"`
+	TaxAmount        float64       `json:"tax_amount"`
+	Total            float64       `json:"total"`
+	PaymentStatus    PaymentStatus `json:"payment_status"`
+	PaymentMethod    PaymentMethod `json:"payment_method"`
+	CreatedAt        time.Time     `json:"created_at"`
+	UpdatedAt        time.Time     `json:"updated_at"`
+	Items            []Item        `json:"items,omitempty"`
+}
+
+// VendorEarnings is what the vendor actually nets after the platform's cut
+// - the subtotal minus commission. Tax and delivery fee are treated as
+// pass-through (collected from the customer, not part of vendor revenue).
+func (o Order) VendorEarnings() float64 {
+	return o.Subtotal - o.CommissionAmount
 }

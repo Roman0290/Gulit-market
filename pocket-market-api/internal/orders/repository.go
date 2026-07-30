@@ -22,7 +22,20 @@ func NewRepository(db *sql.DB) *Repository {
 	return &Repository{db: db}
 }
 
-const orderColumns = `id, customer_id, vendor_id, address_id, status, subtotal, delivery_fee, discount, total, payment_status, payment_method, created_at, updated_at`
+const orderColumns = `id, customer_id, vendor_id, address_id, status, subtotal, delivery_fee, discount, commission_amount, tax_amount, total, payment_status, payment_method, created_at, updated_at`
+
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanOrder(row rowScanner) (Order, error) {
+	var o Order
+	err := row.Scan(
+		&o.ID, &o.CustomerID, &o.VendorID, &o.AddressID, &o.Status, &o.Subtotal, &o.DeliveryFee, &o.Discount,
+		&o.CommissionAmount, &o.TaxAmount, &o.Total, &o.PaymentStatus, &o.PaymentMethod, &o.CreatedAt, &o.UpdatedAt,
+	)
+	return o, err
+}
 
 type cartLine struct {
 	productID string
@@ -37,7 +50,11 @@ type cartLine struct {
 // creates one order (+ order_items) per vendor, decrements stock, and
 // clears the cart. The whole operation runs in a single transaction so a
 // stock failure on one vendor's items rolls back the entire checkout.
-func (r *Repository) Checkout(ctx context.Context, customerID, addressID string, paymentMethod PaymentMethod) ([]Order, error) {
+//
+// commissionRate and taxRate are percentages (e.g. 10 = 10%), applied to
+// each vendor group's subtotal independently. deliveryFee is charged once
+// per vendor group (each vendor's order is its own delivery).
+func (r *Repository) Checkout(ctx context.Context, customerID, addressID string, paymentMethod PaymentMethod, commissionRate, taxRate, deliveryFee float64) ([]Order, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -111,15 +128,16 @@ func (r *Repository) Checkout(ctx context.Context, customerID, addressID string,
 		for _, l := range lines {
 			subtotal += l.price * float64(l.quantity)
 		}
-		total := subtotal // delivery_fee and discount default to 0 in v1
+		commissionAmount := round2(subtotal * commissionRate / 100)
+		taxAmount := round2(subtotal * taxRate / 100)
+		total := subtotal + taxAmount + deliveryFee
 
-		var o Order
-		err := tx.QueryRowContext(ctx, `
-			INSERT INTO orders (customer_id, vendor_id, address_id, status, subtotal, delivery_fee, discount, total, payment_status, payment_method)
-			VALUES ($1, $2, $3, 'pending', $4, 0, 0, $5, 'pending', $6)
+		o, err := scanOrder(tx.QueryRowContext(ctx, `
+			INSERT INTO orders (customer_id, vendor_id, address_id, status, subtotal, delivery_fee, discount, commission_amount, tax_amount, total, payment_status, payment_method)
+			VALUES ($1, $2, $3, 'pending', $4, $5, 0, $6, $7, $8, 'pending', $9)
 			RETURNING `+orderColumns,
-			customerID, vendorID, addressID, subtotal, total, paymentMethod,
-		).Scan(&o.ID, &o.CustomerID, &o.VendorID, &o.AddressID, &o.Status, &o.Subtotal, &o.DeliveryFee, &o.Discount, &o.Total, &o.PaymentStatus, &o.PaymentMethod, &o.CreatedAt, &o.UpdatedAt)
+			customerID, vendorID, addressID, subtotal, deliveryFee, commissionAmount, taxAmount, total, paymentMethod,
+		))
 		if err != nil {
 			return nil, err
 		}
@@ -153,6 +171,10 @@ func (r *Repository) Checkout(ctx context.Context, customerID, addressID string,
 		return nil, err
 	}
 	return createdOrders, nil
+}
+
+func round2(v float64) float64 {
+	return float64(int64(v*100+0.5)) / 100
 }
 
 func (r *Repository) ListByCustomer(ctx context.Context, customerID string) ([]Order, error) {
@@ -198,10 +220,7 @@ func (r *Repository) ListAll(ctx context.Context) ([]Order, error) {
 
 // GetByID returns an order regardless of participant, for admin use.
 func (r *Repository) GetByID(ctx context.Context, orderID string) (*Order, error) {
-	var o Order
-	err := r.db.QueryRowContext(ctx, `SELECT `+orderColumns+` FROM orders WHERE id = $1`, orderID).Scan(
-		&o.ID, &o.CustomerID, &o.VendorID, &o.AddressID, &o.Status, &o.Subtotal, &o.DeliveryFee, &o.Discount, &o.Total, &o.PaymentStatus, &o.PaymentMethod, &o.CreatedAt, &o.UpdatedAt,
-	)
+	o, err := scanOrder(r.db.QueryRowContext(ctx, `SELECT `+orderColumns+` FROM orders WHERE id = $1`, orderID))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -245,10 +264,7 @@ func (r *Repository) UpdateStatusForVendor(ctx context.Context, orderID, vendorI
 		WHERE id = $2 AND vendor_id = $3
 		RETURNING ` + orderColumns
 
-	var o Order
-	err := r.db.QueryRowContext(ctx, query, status, orderID, vendorID).Scan(
-		&o.ID, &o.CustomerID, &o.VendorID, &o.AddressID, &o.Status, &o.Subtotal, &o.DeliveryFee, &o.Discount, &o.Total, &o.PaymentStatus, &o.PaymentMethod, &o.CreatedAt, &o.UpdatedAt,
-	)
+	o, err := scanOrder(r.db.QueryRowContext(ctx, query, status, orderID, vendorID))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -287,10 +303,7 @@ func (r *Repository) GetByIDForParticipant(ctx context.Context, orderID, userID 
 		SELECT ` + orderColumns + ` FROM orders
 		WHERE id = $1 AND (customer_id = $2 OR vendor_id IN (SELECT id FROM vendors WHERE user_id = $2))
 	`
-	var o Order
-	err := r.db.QueryRowContext(ctx, query, orderID, userID).Scan(
-		&o.ID, &o.CustomerID, &o.VendorID, &o.AddressID, &o.Status, &o.Subtotal, &o.DeliveryFee, &o.Discount, &o.Total, &o.PaymentStatus, &o.PaymentMethod, &o.CreatedAt, &o.UpdatedAt,
-	)
+	o, err := scanOrder(r.db.QueryRowContext(ctx, query, orderID, userID))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -328,8 +341,8 @@ func scanOrders(rows *sql.Rows) ([]Order, error) {
 	defer rows.Close()
 	orders := []Order{}
 	for rows.Next() {
-		var o Order
-		if err := rows.Scan(&o.ID, &o.CustomerID, &o.VendorID, &o.AddressID, &o.Status, &o.Subtotal, &o.DeliveryFee, &o.Discount, &o.Total, &o.PaymentStatus, &o.PaymentMethod, &o.CreatedAt, &o.UpdatedAt); err != nil {
+		o, err := scanOrder(rows)
+		if err != nil {
 			return nil, err
 		}
 		orders = append(orders, o)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/romina/pocket-market-api/internal/settings"
 	"github.com/romina/pocket-market-api/internal/vendors"
 )
 
@@ -31,19 +32,26 @@ func (s Status) valid() bool {
 }
 
 type Service struct {
-	repo       *Repository
-	vendorRepo *vendors.Repository
+	repo         *Repository
+	vendorRepo   *vendors.Repository
+	settingsRepo *settings.Repository
 }
 
-func NewService(repo *Repository, vendorRepo *vendors.Repository) *Service {
-	return &Service{repo: repo, vendorRepo: vendorRepo}
+func NewService(repo *Repository, vendorRepo *vendors.Repository, settingsRepo *settings.Repository) *Service {
+	return &Service{repo: repo, vendorRepo: vendorRepo, settingsRepo: settingsRepo}
 }
 
 func (s *Service) Checkout(ctx context.Context, customerID, addressID string, paymentMethod PaymentMethod) ([]Order, error) {
 	if !paymentMethod.Valid() {
 		return nil, ErrInvalidPaymentMethod
 	}
-	return s.repo.Checkout(ctx, customerID, addressID, paymentMethod)
+
+	cfg, err := s.settingsRepo.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.repo.Checkout(ctx, customerID, addressID, paymentMethod, cfg.CommissionRate, cfg.TaxRate, cfg.DefaultDeliveryFee)
 }
 
 func (s *Service) ListByCustomer(ctx context.Context, customerID string) ([]Order, error) {
