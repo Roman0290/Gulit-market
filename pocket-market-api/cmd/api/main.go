@@ -60,7 +60,7 @@ func main() {
 	paymentHandler := payments.NewHandler(paymentService)
 
 	adminRepo := admin.NewRepository(conn)
-	adminHandler := admin.NewHandler(adminRepo, orderRepo, vendorRepo, userRepo)
+	adminHandler := admin.NewHandler(adminRepo, orderRepo, vendorRepo, userRepo, productRepo)
 
 	router := gin.Default()
 

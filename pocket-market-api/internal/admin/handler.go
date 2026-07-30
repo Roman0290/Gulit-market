@@ -8,19 +8,21 @@ import (
 
 	"github.com/romina/pocket-market-api/internal/auth"
 	"github.com/romina/pocket-market-api/internal/orders"
+	"github.com/romina/pocket-market-api/internal/products"
 	"github.com/romina/pocket-market-api/internal/users"
 	"github.com/romina/pocket-market-api/internal/vendors"
 )
 
 type Handler struct {
-	repo       *Repository
-	orderRepo  *orders.Repository
-	vendorRepo *vendors.Repository
-	userRepo   *users.Repository
+	repo        *Repository
+	orderRepo   *orders.Repository
+	vendorRepo  *vendors.Repository
+	userRepo    *users.Repository
+	productRepo *products.Repository
 }
 
-func NewHandler(repo *Repository, orderRepo *orders.Repository, vendorRepo *vendors.Repository, userRepo *users.Repository) *Handler {
-	return &Handler{repo: repo, orderRepo: orderRepo, vendorRepo: vendorRepo, userRepo: userRepo}
+func NewHandler(repo *Repository, orderRepo *orders.Repository, vendorRepo *vendors.Repository, userRepo *users.Repository, productRepo *products.Repository) *Handler {
+	return &Handler{repo: repo, orderRepo: orderRepo, vendorRepo: vendorRepo, userRepo: userRepo, productRepo: productRepo}
 }
 
 func (h *Handler) RegisterRoutes(rg *gin.RouterGroup, authService *auth.Service) {
@@ -30,6 +32,8 @@ func (h *Handler) RegisterRoutes(rg *gin.RouterGroup, authService *auth.Service)
 	g.GET("/vendors/pending", h.ListPendingVendors)
 	g.GET("/users", h.ListUsers)
 	g.PATCH("/users/:id/status", h.UpdateUserStatus)
+	g.PATCH("/products/:id/status", h.UpdateProductStatus)
+	g.DELETE("/products/:id", h.DeleteProduct)
 }
 
 func (h *Handler) ListOrders(c *gin.Context) {
@@ -100,4 +104,43 @@ func (h *Handler) UpdateUserStatus(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, u)
+}
+
+type updateProductStatusRequest struct {
+	IsActive *bool `json:"is_active" binding:"required"`
+}
+
+func (h *Handler) UpdateProductStatus(c *gin.Context) {
+	var req updateProductStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	p, err := h.productRepo.SetActiveByAdmin(c.Request.Context(), c.Param("id"), *req.IsActive)
+	if err != nil {
+		if errors.Is(err, products.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "product not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update product status"})
+		return
+	}
+	c.JSON(http.StatusOK, p)
+}
+
+func (h *Handler) DeleteProduct(c *gin.Context) {
+	err := h.productRepo.DeleteByAdmin(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		switch {
+		case errors.Is(err, products.ErrNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "product not found"})
+		case errors.Is(err, products.ErrHasOrderHistory):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete product"})
+		}
+		return
+	}
+	c.Status(http.StatusNoContent)
 }

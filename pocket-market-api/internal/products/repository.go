@@ -6,9 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
-var ErrNotFound = errors.New("product not found")
+var (
+	ErrNotFound        = errors.New("product not found")
+	ErrHasOrderHistory = errors.New("product has existing orders and cannot be deleted; deactivate it instead")
+)
 
 type Repository struct {
 	db *sql.DB
@@ -131,6 +136,43 @@ func (r *Repository) UpdateStock(ctx context.Context, id, vendorID string, quant
 func (r *Repository) Delete(ctx context.Context, id, vendorID string) error {
 	res, err := r.db.ExecContext(ctx, `DELETE FROM products WHERE id = $1 AND vendor_id = $2`, id, vendorID)
 	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetActiveByAdmin toggles a listing's visibility regardless of which
+// vendor owns it, for moderating fake/bad products without touching order
+// history (a hard delete would orphan any existing order_items referencing it).
+func (r *Repository) SetActiveByAdmin(ctx context.Context, id string, isActive bool) (*Product, error) {
+	query := `UPDATE products SET is_active = $1, updated_at = now() WHERE id = $2 RETURNING ` + productColumns
+	updated, err := scanProduct(r.db.QueryRowContext(ctx, query, isActive, id))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &updated, nil
+}
+
+// DeleteByAdmin removes a product regardless of vendor ownership. Fails
+// with a foreign-key error if the product appears in any order_items -
+// use SetActiveByAdmin instead for listings that have already sold.
+func (r *Repository) DeleteByAdmin(ctx context.Context, id string) error {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM products WHERE id = $1`, id)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return ErrHasOrderHistory
+		}
 		return err
 	}
 	n, err := res.RowsAffected()
