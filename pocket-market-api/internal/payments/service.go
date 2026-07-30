@@ -6,6 +6,7 @@ import (
 
 	"github.com/stripe/stripe-go/v81"
 	"github.com/stripe/stripe-go/v81/paymentintent"
+	"github.com/stripe/stripe-go/v81/refund"
 	"github.com/stripe/stripe-go/v81/webhook"
 )
 
@@ -63,6 +64,29 @@ func (s *Service) CreateIntent(ctx context.Context, customerID, orderID string) 
 	}
 
 	return &IntentResult{ClientSecret: pi.ClientSecret, PaymentIntentID: pi.ID}, nil
+}
+
+// RefundOrder issues a full Stripe refund against an order's succeeded
+// payment. The Stripe API call happens before the local DB update so we
+// never mark something refunded that Stripe rejected.
+func (s *Service) RefundOrder(ctx context.Context, orderID string) (*Payment, error) {
+	payment, err := s.repo.GetSucceededPaymentByOrderID(ctx, orderID)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = refund.New(&stripe.RefundParams{
+		PaymentIntent: stripe.String(payment.ProviderRef),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.repo.MarkRefunded(ctx, payment.ID); err != nil {
+		return nil, err
+	}
+	payment.Status = StatusRefunded
+	return payment, nil
 }
 
 func (s *Service) HandleWebhook(ctx context.Context, payload []byte, signatureHeader string) error {

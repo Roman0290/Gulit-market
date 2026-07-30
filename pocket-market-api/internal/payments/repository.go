@@ -40,6 +40,55 @@ func (r *Repository) GetOrderForPayment(ctx context.Context, orderID, customerID
 	return &o, nil
 }
 
+// GetSucceededPaymentByOrderID finds the most recent successful payment for
+// an order, so it can be refunded.
+func (r *Repository) GetSucceededPaymentByOrderID(ctx context.Context, orderID string) (*Payment, error) {
+	var p Payment
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, order_id, provider, provider_ref, amount, status, created_at
+		FROM payments WHERE order_id = $1 AND status = 'succeeded'
+		ORDER BY created_at DESC LIMIT 1
+	`, orderID).Scan(&p.ID, &p.OrderID, &p.Provider, &p.ProviderRef, &p.Amount, &p.Status, &p.CreatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrPaymentNotFound
+		}
+		return nil, err
+	}
+	return &p, nil
+}
+
+// MarkRefunded transactionally flips both the payment and its order to
+// "refunded", after the Stripe refund API call has already succeeded.
+func (r *Repository) MarkRefunded(ctx context.Context, paymentID string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var orderID string
+	err = tx.QueryRowContext(ctx,
+		`UPDATE payments SET status = 'refunded' WHERE id = $1 AND status = 'succeeded' RETURNING order_id`,
+		paymentID,
+	).Scan(&orderID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrPaymentNotFound
+		}
+		return err
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE orders SET payment_status = 'refunded', updated_at = now() WHERE id = $1`,
+		orderID,
+	); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 func (r *Repository) Create(ctx context.Context, p *Payment) (*Payment, error) {
 	const query = `
 		INSERT INTO payments (order_id, provider, provider_ref, amount, status)

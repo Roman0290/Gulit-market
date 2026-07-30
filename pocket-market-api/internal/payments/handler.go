@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/romina/pocket-market-api/internal/auth"
+	"github.com/romina/pocket-market-api/internal/users"
 )
 
 type Handler struct {
@@ -22,6 +23,7 @@ func NewHandler(service *Service) *Handler {
 func (h *Handler) RegisterRoutes(rg *gin.RouterGroup, authService *auth.Service) {
 	rg.POST("/payments/intent", authService.RequireAuth(), h.CreateIntent)
 	rg.POST("/payments/webhook", h.Webhook)
+	rg.POST("/admin/orders/:id/refund", authService.RequireAuth(), auth.RequireRole(users.RoleAdmin), h.RefundOrder)
 }
 
 type createIntentRequest struct {
@@ -49,6 +51,19 @@ func (h *Handler) CreateIntent(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, result)
+}
+
+func (h *Handler) RefundOrder(c *gin.Context) {
+	payment, err := h.service.RefundOrder(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		if errors.Is(err, ErrPaymentNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "no successful payment found for this order"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to refund order"})
+		return
+	}
+	c.JSON(http.StatusOK, payment)
 }
 
 // Webhook must read the raw request body (not ShouldBindJSON) because
