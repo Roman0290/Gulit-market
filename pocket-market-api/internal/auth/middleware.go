@@ -29,6 +29,18 @@ func (s *Service) RequireAuth() gin.HandlerFunc {
 			return
 		}
 
+		// Re-checked on every request (not just at login) so a suspension
+		// takes effect immediately instead of waiting for the JWT to expire.
+		u, err := s.userRepo.GetByID(c.Request.Context(), claims.UserID)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
+			return
+		}
+		if u.Status == users.StatusSuspended {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": ErrAccountSuspended.Error()})
+			return
+		}
+
 		c.Set(ContextUserIDKey, claims.UserID)
 		c.Set(ContextRoleKey, claims.Role)
 		c.Next()

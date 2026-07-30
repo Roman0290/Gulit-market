@@ -75,11 +75,14 @@ func (h *Handler) Login(c *gin.Context) {
 
 	token, u, err := h.service.Login(c.Request.Context(), req.Email, req.Password)
 	if err != nil {
-		if errors.Is(err, ErrInvalidCredentials) {
+		switch {
+		case errors.Is(err, ErrInvalidCredentials):
 			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-			return
+		case errors.Is(err, ErrAccountSuspended):
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to log in"})
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to log in"})
 		return
 	}
 

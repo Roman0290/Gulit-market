@@ -14,6 +14,7 @@ import (
 var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
 	ErrInvalidRole        = errors.New("role must be customer or vendor")
+	ErrAccountSuspended   = errors.New("this account has been suspended")
 )
 
 const tokenTTL = 24 * time.Hour
@@ -73,6 +74,10 @@ func (s *Service) Login(ctx context.Context, email, password string) (string, *u
 
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
 		return "", nil, ErrInvalidCredentials
+	}
+
+	if u.Status == users.StatusSuspended {
+		return "", nil, ErrAccountSuspended
 	}
 
 	token, err := s.generateToken(u)

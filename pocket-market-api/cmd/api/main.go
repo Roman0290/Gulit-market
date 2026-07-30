@@ -60,7 +60,7 @@ func main() {
 	paymentHandler := payments.NewHandler(paymentService)
 
 	adminRepo := admin.NewRepository(conn)
-	adminHandler := admin.NewHandler(adminRepo, orderRepo, vendorRepo)
+	adminHandler := admin.NewHandler(adminRepo, orderRepo, vendorRepo, userRepo)
 
 	router := gin.Default()
 
@@ -78,6 +78,8 @@ func main() {
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
+
+	router.Static("/images", "./public/images")
 
 	v1 := router.Group("/api/v1")
 	authHandler.RegisterRoutes(v1)
