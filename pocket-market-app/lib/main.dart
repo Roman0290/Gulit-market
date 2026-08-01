@@ -56,7 +56,7 @@ class PocketMarketApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => OrdersProvider(OrdersRepository(apiClient))),
       ],
       child: MaterialApp(
-        title: 'Gulit Market',
+        title: 'ጉሊት Market',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light(),
         home: const _AuthGate(),

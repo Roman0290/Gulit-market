@@ -1,6 +1,6 @@
 {
-    "name": "pocket_market_app",
-    "short_name": "pocket_market_app",
+    "name": "ጉሊት Market",
+    "short_name": "ጉሊት Market",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

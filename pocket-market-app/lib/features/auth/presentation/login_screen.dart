@@ -53,7 +53,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   Icon(Icons.storefront, size: 56, color: Theme.of(context).colorScheme.primary),
                   const SizedBox(height: 12),
                   Text(
-                    'Gulit Market',
+                    'ጉሊት Market',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
                   ),

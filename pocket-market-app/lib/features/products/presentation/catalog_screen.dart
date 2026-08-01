@@ -27,7 +27,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
     final provider = context.watch<ProductsProvider>();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Gulit Market')),
+      appBar: AppBar(title: const Text('ጉሊት Market')),
       body: Column(
         children: [
           Padding(
