@@ -10,6 +10,7 @@ import (
 	"github.com/romina/pocket-market-api/internal/addresses"
 	"github.com/romina/pocket-market-api/internal/admin"
 	"github.com/romina/pocket-market-api/internal/auth"
+	"github.com/romina/pocket-market-api/internal/banners"
 	"github.com/romina/pocket-market-api/internal/cart"
 	"github.com/romina/pocket-market-api/internal/categories"
 	"github.com/romina/pocket-market-api/internal/coupons"
@@ -62,6 +63,9 @@ func main() {
 	payoutService := payouts.NewService(payoutRepo, vendorRepo)
 	payoutHandler := payouts.NewHandler(payoutRepo, payoutService)
 
+	bannerRepo := banners.NewRepository(conn)
+	bannerHandler := banners.NewHandler(bannerRepo)
+
 	couponRepo := coupons.NewRepository(conn)
 	couponHandler := coupons.NewHandler(couponRepo)
 
@@ -112,6 +116,7 @@ func main() {
 	payoutHandler.RegisterRoutes(v1, authService)
 	disputeHandler.RegisterRoutes(v1, authService)
 	couponHandler.RegisterRoutes(v1, authService)
+	bannerHandler.RegisterRoutes(v1, authService)
 
 	log.Printf("starting pocket-market-api on :%s", cfg.Port)
 	if err := router.Run(":" + cfg.Port); err != nil {
