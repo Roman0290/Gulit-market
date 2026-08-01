@@ -41,7 +41,7 @@ func NewService(repo *Repository, vendorRepo *vendors.Repository, settingsRepo *
 	return &Service{repo: repo, vendorRepo: vendorRepo, settingsRepo: settingsRepo}
 }
 
-func (s *Service) Checkout(ctx context.Context, customerID, addressID string, paymentMethod PaymentMethod) ([]Order, error) {
+func (s *Service) Checkout(ctx context.Context, customerID, addressID string, paymentMethod PaymentMethod, couponCode string) ([]Order, error) {
 	if !paymentMethod.Valid() {
 		return nil, ErrInvalidPaymentMethod
 	}
@@ -51,7 +51,7 @@ func (s *Service) Checkout(ctx context.Context, customerID, addressID string, pa
 		return nil, err
 	}
 
-	return s.repo.Checkout(ctx, customerID, addressID, paymentMethod, cfg.CommissionRate, cfg.TaxRate, cfg.DefaultDeliveryFee)
+	return s.repo.Checkout(ctx, customerID, addressID, paymentMethod, cfg.CommissionRate, cfg.TaxRate, cfg.DefaultDeliveryFee, couponCode)
 }
 
 func (s *Service) ListByCustomer(ctx context.Context, customerID string) ([]Order, error) {

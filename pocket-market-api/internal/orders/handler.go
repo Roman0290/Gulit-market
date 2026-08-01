@@ -31,6 +31,7 @@ func (h *Handler) RegisterRoutes(rg *gin.RouterGroup, authService *auth.Service)
 type checkoutRequest struct {
 	AddressID     string        `json:"address_id" binding:"required"`
 	PaymentMethod PaymentMethod `json:"payment_method" binding:"required"`
+	CouponCode    string        `json:"coupon_code"`
 }
 
 func (h *Handler) Checkout(c *gin.Context) {
@@ -41,12 +42,13 @@ func (h *Handler) Checkout(c *gin.Context) {
 	}
 
 	userID := c.GetString(auth.ContextUserIDKey)
-	createdOrders, err := h.service.Checkout(c.Request.Context(), userID, req.AddressID, req.PaymentMethod)
+	createdOrders, err := h.service.Checkout(c.Request.Context(), userID, req.AddressID, req.PaymentMethod, req.CouponCode)
 	if err != nil {
 		switch {
-		case errors.Is(err, ErrInvalidPaymentMethod), errors.Is(err, ErrProductUnavailable), errors.Is(err, ErrInsufficientStock):
+		case errors.Is(err, ErrInvalidPaymentMethod), errors.Is(err, ErrProductUnavailable), errors.Is(err, ErrInsufficientStock),
+			errors.Is(err, ErrCouponInactive), errors.Is(err, ErrCouponExpired), errors.Is(err, ErrCouponExhausted):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		case errors.Is(err, ErrAddressNotOwned):
+		case errors.Is(err, ErrAddressNotOwned), errors.Is(err, ErrCouponNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		case errors.Is(err, ErrEmptyCart):
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})

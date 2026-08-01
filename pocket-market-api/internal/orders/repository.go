@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 )
 
 var (
@@ -12,6 +13,10 @@ var (
 	ErrAddressNotOwned    = errors.New("address not found for this customer")
 	ErrProductUnavailable = errors.New("one or more products in the cart are no longer available")
 	ErrInsufficientStock  = errors.New("insufficient stock for one or more items in the cart")
+	ErrCouponNotFound     = errors.New("coupon code not found")
+	ErrCouponInactive     = errors.New("this coupon is no longer active")
+	ErrCouponExpired      = errors.New("this coupon has expired")
+	ErrCouponExhausted    = errors.New("this coupon has reached its usage limit")
 )
 
 type Repository struct {
@@ -54,7 +59,7 @@ type cartLine struct {
 // commissionRate and taxRate are percentages (e.g. 10 = 10%), applied to
 // each vendor group's subtotal independently. deliveryFee is charged once
 // per vendor group (each vendor's order is its own delivery).
-func (r *Repository) Checkout(ctx context.Context, customerID, addressID string, paymentMethod PaymentMethod, commissionRate, taxRate, deliveryFee float64) ([]Order, error) {
+func (r *Repository) Checkout(ctx context.Context, customerID, addressID string, paymentMethod PaymentMethod, commissionRate, taxRate, deliveryFee float64, couponCode string) ([]Order, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -122,21 +127,79 @@ func (r *Repository) Checkout(ctx context.Context, customerID, addressID string,
 		}
 	}
 
+	// Coupon is validated and (if valid) locked here, before creating any
+	// orders, so a checkout never partially applies a discount.
+	var couponID string
+	var discountType string
+	var discountValue float64
+	hasCoupon := couponCode != ""
+	if hasCoupon {
+		var isActive bool
+		var expiresAt sql.NullTime
+		var usageLimit sql.NullInt64
+		var timesUsed int
+		err := tx.QueryRowContext(ctx, `
+			SELECT id, discount_type, discount_value, is_active, expires_at, usage_limit, times_used
+			FROM coupons WHERE code = $1
+			FOR UPDATE
+		`, couponCode).Scan(&couponID, &discountType, &discountValue, &isActive, &expiresAt, &usageLimit, &timesUsed)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrCouponNotFound
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !isActive {
+			return nil, ErrCouponInactive
+		}
+		if expiresAt.Valid && expiresAt.Time.Before(time.Now()) {
+			return nil, ErrCouponExpired
+		}
+		if usageLimit.Valid && int64(timesUsed) >= usageLimit.Int64 {
+			return nil, ErrCouponExhausted
+		}
+	}
+
+	var cartSubtotal float64
+	for _, lines := range linesByVendor {
+		for _, l := range lines {
+			cartSubtotal += l.price * float64(l.quantity)
+		}
+	}
+
 	var createdOrders []Order
 	for vendorID, lines := range linesByVendor {
 		var subtotal float64
 		for _, l := range lines {
 			subtotal += l.price * float64(l.quantity)
 		}
-		commissionAmount := round2(subtotal * commissionRate / 100)
-		taxAmount := round2(subtotal * taxRate / 100)
-		total := subtotal + taxAmount + deliveryFee
+
+		var discount float64
+		if hasCoupon {
+			switch discountType {
+			case "percent":
+				discount = round2(subtotal * discountValue / 100)
+			case "fixed":
+				// Split proportionally by this vendor group's share of the
+				// cart, so a flat "50 off" coupon totals exactly 50 off
+				// across the whole checkout, not 50 off per vendor.
+				discount = round2(discountValue * (subtotal / cartSubtotal))
+			}
+			if discount > subtotal {
+				discount = subtotal
+			}
+		}
+
+		discountedSubtotal := subtotal - discount
+		commissionAmount := round2(subtotal * commissionRate / 100) // vendor payout unaffected by platform-funded coupons
+		taxAmount := round2(discountedSubtotal * taxRate / 100)
+		total := discountedSubtotal + taxAmount + deliveryFee
 
 		o, err := scanOrder(tx.QueryRowContext(ctx, `
 			INSERT INTO orders (customer_id, vendor_id, address_id, status, subtotal, delivery_fee, discount, commission_amount, tax_amount, total, payment_status, payment_method)
-			VALUES ($1, $2, $3, 'pending', $4, $5, 0, $6, $7, $8, 'pending', $9)
+			VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, 'pending', $10)
 			RETURNING `+orderColumns,
-			customerID, vendorID, addressID, subtotal, deliveryFee, commissionAmount, taxAmount, total, paymentMethod,
+			customerID, vendorID, addressID, subtotal, deliveryFee, discount, commissionAmount, taxAmount, total, paymentMethod,
 		))
 		if err != nil {
 			return nil, err
@@ -161,6 +224,12 @@ func (r *Repository) Checkout(ctx context.Context, customerID, addressID string,
 		}
 
 		createdOrders = append(createdOrders, o)
+	}
+
+	if hasCoupon {
+		if _, err := tx.ExecContext(ctx, `UPDATE coupons SET times_used = times_used + 1 WHERE id = $1`, couponID); err != nil {
+			return nil, err
+		}
 	}
 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM cart_items WHERE cart_id = $1`, cartID); err != nil {
